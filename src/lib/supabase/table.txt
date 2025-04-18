@@ -1,0 +1,42 @@
+-- 1️⃣  TABLE
+create table if not exists public.songs (
+  id          bigserial primary key,
+  created_at  timestamptz default now(),
+  title       text        not null,
+  artist      text        not null,
+  duration    numeric,
+  cover_url   text,
+  audio_url   text        not null,
+  favorite    boolean     default false
+);
+
+-- 2️⃣  RLS (no auth → open but still typed)
+alter table public.songs enable row level security;
+
+create policy "Public read"
+  on public.songs
+  for select
+  using ( true );
+
+create policy "Public insert"
+  on public.songs
+  for insert
+  with check ( true );
+
+create policy "Public update fav/metadata"
+  on public.songs
+  for update
+  using ( true );
+
+-- 3️⃣  STORAGE
+-- create bucket in dashboard named 'audio'
+-- then policies:
+-- Everyone can read
+create policy "Public read audio"
+  on storage.objects for select
+  using ( bucket_id = 'audio' );
+
+-- Everyone can upload/update
+create policy "Public upload audio"
+  on storage.objects for insert, update
+  with check ( bucket_id = 'audio' );
