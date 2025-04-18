@@ -1,75 +1,99 @@
 'use client'
-
-import { useState } from 'react'
+import { useState, FormEvent } from 'react'
+import { Song } from '@/context/PlayerContext'
 import { supabase } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { Song } from '@/context/PlayerContext'
-import { v4 as uuid } from 'uuid'
-import { Dialog, DialogTrigger, DialogContent } from '@radix-ui/react-dialog'
-import { Button } from './button'
-import { Input } from './input'
 
-export default function UploadSong({ onUploaded }: { onUploaded(song: Song): void }) {
-  const [open, setOpen] = useState(false)
-  const [file, setFile] = useState<File | null>(null)
+interface UploadSongProps {
+  onUploaded: (song: Song) => void
+}
+
+export default function UploadSong({ onUploaded }: UploadSongProps) {
   const [title, setTitle] = useState('')
   const [artist, setArtist] = useState('')
+  const [file, setFile] = useState<File | null>(null)
   const [loading, setLoading] = useState(false)
 
-  const reset = () => {
-    setFile(null); setTitle(''); setArtist('')
-  }
-
-  const handleUpload = async () => {
-    if (!file || !title || !artist) return toast.error('Missing fields')
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!file || !title || !artist) {
+      toast.error('Please fill out all fields.')
+      return
+    }
     setLoading(true)
-    const filename = `${uuid()}-${file.name}`
-    const { error: upErr } = await supabase.storage.from('audio').upload(filename, file)
-    if (upErr) { toast.error(upErr.message); setLoading(false); return }
-    const { data: { publicUrl } } = supabase.storage.from('audio').getPublicUrl(filename)
-
-    const { data, error } = await supabase
+    const ext = file.name.split('.').pop()
+    const filename = `${Date.now()}.${ext}`
+    const { data: uploadData, error: uploadErr } = await supabase
+      .storage
       .from('songs')
-      .insert({ title, artist, audio_url: publicUrl })
+      .upload(filename, file)
+    if (uploadErr) {
+      toast.error(uploadErr.message)
+      setLoading(false)
+      return
+    }
+    const { publicUrl, error: urlErr } = supabase
+      .storage
+      .from('songs')
+      .getPublicUrl(uploadData.path).data
+    if (urlErr) {
+      toast.error(urlErr.message)
+      setLoading(false)
+      return
+    }
+    const { data: inserted, error: insertErr } = await supabase
+      .from<Song>('songs')
+      .insert({
+        title,
+        artist,
+        audio_url: publicUrl,
+        cover_url: null,
+        duration: null,
+        favorite: false
+      })
       .select()
       .single()
-
-    setLoading(false)
-
-    if (error) return toast.error(error.message)
+    if (insertErr) {
+      toast.error(insertErr.message)
+      setLoading(false)
+      return
+    }
     toast.success('Uploaded!')
-    onUploaded(data as Song)
-    setOpen(false); reset()
+    onUploaded(inserted as Song)
+    setTitle('')
+    setArtist('')
+    setFile(null)
+    setLoading(false)
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button className="bg-brand hover:bg-brand-dark">Upload</Button>
-      </DialogTrigger>
-      <DialogContent className="bg-surface-100">
-        <div className="space-y-4">
-          <h3 className="text-xl font-semibold">Upload new song</h3>
-          <Input
-            accept="audio/*"
-            type="file"
-            onChange={e => setFile(e.target.files?.[0] || null)}
-          />
-          <Input
-            placeholder="Title"
-            value={title}
-            onChange={e => setTitle(e.target.value)}
-          />
-          <Input
-            placeholder="Artist"
-            value={artist}
-            onChange={e => setArtist(e.target.value)}
-          />
-          <Button disabled={loading} onClick={handleUpload} className="w-full">
-            {loading ? 'Uploading…' : 'Save'}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <form onSubmit={handleSubmit} className="flex items-center space-x-2">
+      <input
+        type="file"
+        accept="audio/*"
+        onChange={e => setFile(e.target.files?.[0] ?? null)}
+      />
+      <input
+        type="text"
+        placeholder="Title"
+        value={title}
+        onChange={e => setTitle(e.target.value)}
+        className="w-24 rounded border px-2 py-1"
+      />
+      <input
+        type="text"
+        placeholder="Artist"
+        value={artist}
+        onChange={e => setArtist(e.target.value)}
+        className="w-24 rounded border px-2 py-1"
+      />
+      <button
+        type="submit"
+        disabled={loading}
+        className="rounded bg-green-500 px-3 py-1 text-white disabled:opacity-50"
+      >
+        {loading ? 'Uploading…' : 'Upload'}
+      </button>
+    </form>
   )
 }
